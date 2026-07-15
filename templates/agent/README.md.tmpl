@@ -1,10 +1,9 @@
-# Welcome to the external postgres
+# DynamoDB Local
 
-This service helps with external postgres databases:
+This plugin runs a pinned DynamoDB Local service for development, testing, and
+Kubernetes environments. It exports the selected endpoint and AWS region as
+configuration for dependent services.
 
-- creation of connection string as configuration to dependent services
-
-- creation of migration jobs
-
-
-This services also provides a local postgres database for development and testing purposes.
+Production applications that use AWS DynamoDB should replace the local workload
+through an environment overlay and inject the managed AWS endpoint/credentials;
+this plugin does not pretend SQL migrations apply to DynamoDB.

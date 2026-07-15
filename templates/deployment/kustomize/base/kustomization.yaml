@@ -1,3 +1,4 @@
 resources:
   - namespace.yaml
-  - job.yaml
+  - stateful-set.yaml
+  - service.yaml

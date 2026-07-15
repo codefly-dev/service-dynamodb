@@ -15,6 +15,7 @@ import (
 	"github.com/codefly-dev/core/templates"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"strings"
 )
 
 // Agent version
@@ -22,7 +23,6 @@ var agent = shared.Must(resources.LoadFromFs[resources.Agent](shared.Embed(infoF
 
 var requirements = builders.NewDependencies(agent.Name,
 	builders.NewDependency("service.codefly.yaml"),
-	builders.NewDependency("migrations", "migrations").WithPathSelect(shared.NewSelect("*.sql")),
 )
 
 type Settings struct {
@@ -31,7 +31,11 @@ type Settings struct {
 const HotReload = "hot-reload"
 const DatabaseName = "database-name"
 
-var image = &resources.DockerImage{Name: "amazon/dynamodb-local"}
+var image = &resources.DockerImage{
+	Name:   "amazon/dynamodb-local",
+	Tag:    "3.3.0",
+	Digest: "sha256:d89f8fcc6b1a39cb35976c248ed42a28c66ae00dc043099210f5571e42648ab4",
+}
 
 type Service struct {
 	*services.Base
@@ -76,7 +80,20 @@ func (s *Service) CreateConnectionConfiguration(ctx context.Context, conf *basev
 	defer s.Wool.Catch()
 	ctx = s.Wool.Inject(ctx)
 
-	endpoint := fmt.Sprintf("http://localhost:%d", instance.Port)
+	if instance == nil || instance.GetAddress() == "" {
+		return nil, s.Wool.NewError("dynamodb network instance is missing an address")
+	}
+	endpoint := instance.GetAddress()
+	if !strings.Contains(endpoint, "://") {
+		endpoint = fmt.Sprintf("http://%s", endpoint)
+	}
+	region, err := resources.GetConfigurationValue(ctx, conf, "dynamodb", "AWS_REGION")
+	if err != nil {
+		return nil, err
+	}
+	if region == "" {
+		region = "us-east-1"
+	}
 
 	outputConf := &basev0.Configuration{
 		Origin:         s.Base.Unique(),
@@ -86,7 +103,7 @@ func (s *Service) CreateConnectionConfiguration(ctx context.Context, conf *basev
 				Name: "dynamodb",
 				ConfigurationValues: []*basev0.ConfigurationValue{
 					{Key: "endpoint", Value: endpoint},
-					{Key: "region", Value: s.Region},
+					{Key: "region", Value: region},
 				},
 			},
 		},

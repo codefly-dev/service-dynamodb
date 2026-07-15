@@ -3,122 +3,66 @@ package main
 import (
 	"context"
 	"embed"
-	v0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+
+	"github.com/codefly-dev/core/agents/services"
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/standards"
 	"github.com/codefly-dev/core/wool"
-
-	"github.com/codefly-dev/core/agents/communicate"
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
-
-	"github.com/codefly-dev/core/agents/services"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
-	"github.com/codefly-dev/core/shared"
-	"github.com/codefly-dev/core/templates"
 )
 
 type Builder struct {
-	services.BuilderServer
+	*services.DefaultBuilder
 	*Service
-
-	answers map[string]*agentv0.Answer
 }
 
 func NewBuilder() *Builder {
+	service := NewService()
 	return &Builder{
-		Service: NewService(),
+		DefaultBuilder: services.NewDefaultBuilder(service.Builder),
+		Service:        service,
 	}
 }
 
 func (s *Builder) Load(ctx context.Context, req *builderv0.LoadRequest) (*builderv0.LoadResponse, error) {
 	defer s.Wool.Catch()
 
-	ctx = s.Wool.Inject(ctx)
-
-	err := s.Base.Load(ctx, req.Identity, s.Settings)
-	if err != nil {
-		return nil, err
-	}
-
-	s.Wool.Debug("base loaded", wool.Field("identity", s.Identity))
-
-	if req.DisableCatch {
-		s.Wool.DisableCatch()
-	}
-
-	requirements.Localize(s.Location)
-
-	if req.CreationMode != nil {
-		s.Builder.CreationMode = req.CreationMode
-		s.Builder.GettingStarted, err = templates.ApplyTemplateFrom(ctx, shared.Embed(factoryFS), "templates/factory/GETTING_STARTED.md", s.Information)
-		if err != nil {
-			return nil, err
-		}
-		return s.Builder.LoadResponse()
-	}
-
-	s.Endpoints, err = s.Builder.Service.LoadEndpoints(ctx)
-	if err != nil {
-		return s.Builder.LoadError(err)
-	}
-
-	s.TcpEndpoint, err = resources.FindTCPEndpoint(ctx, s.Endpoints)
-	if err != nil {
-		return s.Builder.LoadError(err)
-	}
-
-	s.Wool.Debug("endpoint", wool.Field("tcp", s.TcpEndpoint))
-
-	return s.Builder.LoadResponse()
-}
-
-func (s *Builder) Init(ctx context.Context, req *builderv0.InitRequest) (*builderv0.InitResponse, error) {
-	defer s.Wool.Catch()
-
-	return s.Builder.InitResponse()
-}
-
-func (s *Builder) Update(ctx context.Context, req *builderv0.UpdateRequest) (*builderv0.UpdateResponse, error) {
-	defer s.Wool.Catch()
-
-	return &builderv0.UpdateResponse{}, nil
-}
-
-func (s *Builder) Sync(ctx context.Context, req *builderv0.SyncRequest) (*builderv0.SyncResponse, error) {
-	defer s.Wool.Catch()
-	ctx = s.Wool.Inject(ctx)
-
-	return s.Builder.SyncResponse()
-}
-
-func (s *Builder) Build(ctx context.Context, req *builderv0.BuildRequest) (*builderv0.BuildResponse, error) {
-	defer s.Wool.Catch()
-
-	// Do migration Docker?
-
-	return s.Builder.BuildResponse()
+	return s.Builder.LoadService(ctx, req, services.BuilderLoad{
+		Settings:         s.Settings,
+		Requirements:     requirements,
+		FactoryTemplates: factoryFS,
+		ResolveEndpoints: func(ctx context.Context, endpoints []*basev0.Endpoint) error {
+			endpoint, err := resources.FindTCPEndpoint(ctx, endpoints)
+			if err != nil {
+				return err
+			}
+			s.TcpEndpoint = endpoint
+			s.Wool.Debug("endpoint", wool.Field("tcp", endpoint))
+			return nil
+		},
+	})
 }
 
 func (s *Builder) Deploy(ctx context.Context, req *builderv0.DeploymentRequest) (*builderv0.DeploymentResponse, error) {
 	defer s.Wool.Catch()
+	s.Base.SetDockerImage(image)
 
-	// Do migration Job?
-
-	return s.Builder.DeployResponse()
-}
-
-func (s *Builder) Options() []*agentv0.Question {
-	return []*agentv0.Question{}
-}
-
-func (s *Builder) Communicate(stream builderv0.Builder_CommunicateServer) error {
-	asker := communicate.NewQuestionAsker(stream)
-	answers, err := asker.RunSequence(s.Options())
-	if err != nil {
-		return err
-	}
-	s.answers = answers
-	return nil
+	return s.Builder.DeployKustomize(ctx, req, services.KustomizeDeployment{
+		EnvironmentVariables: s.EnvironmentVariables,
+		Templates:            deploymentFS,
+		Prepare: func(ctx context.Context, deployment *services.KustomizeDeploymentContext) error {
+			instance, err := resources.FindNetworkInstanceInNetworkMappings(ctx, req.GetNetworkMappings(), s.TcpEndpoint, resources.NewPublicNetworkAccess())
+			if err != nil {
+				return err
+			}
+			configuration, err := s.CreateConnectionConfiguration(ctx, req.GetConfiguration(), instance, false)
+			if err != nil {
+				return err
+			}
+			return deployment.ExportConfiguration(ctx, configuration)
+		},
+	})
 }
 
 type create struct {
@@ -152,15 +96,12 @@ func (s *Builder) CreateEndpoints(ctx context.Context) error {
 	endpoint := s.Base.BaseEndpoint(standards.TCP)
 	endpoint.Visibility = resources.VisibilityExternal
 	s.TcpEndpoint, err = resources.NewAPI(ctx, endpoint, resources.ToTCPAPI(tcp))
-	s.Endpoints = []*v0.Endpoint{s.TcpEndpoint}
+	s.Endpoints = []*basev0.Endpoint{s.TcpEndpoint}
 	return nil
 }
 
 //go:embed templates/factory
 var factoryFS embed.FS
-
-//go:embed templates/builder
-var builderFS embed.FS
 
 //go:embed templates/deployment
 var deploymentFS embed.FS

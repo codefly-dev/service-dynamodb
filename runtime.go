@@ -3,19 +3,19 @@ package main
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	"os"
-	"time"
 
 	"github.com/codefly-dev/core/agents/helpers/code"
 
 	"github.com/codefly-dev/core/wool"
 
 	"github.com/codefly-dev/core/agents/services"
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
 	"github.com/codefly-dev/core/resources"
 	dockerrun "github.com/codefly-dev/core/runners/dockerrun"
@@ -42,40 +42,20 @@ func NewRuntime() *Runtime {
 
 func (s *Runtime) Load(ctx context.Context, req *runtimev0.LoadRequest) (*runtimev0.LoadResponse, error) {
 	defer s.Wool.Catch()
-	ctx = s.Wool.Inject(ctx)
 
-	s.Runtime.LogLoadRequest(req)
-
-	err := s.Base.Load(ctx, req.Identity, s.Settings)
-	if err != nil {
-		return s.Runtime.LoadErrorf(err, "loading base")
-	}
-
-	s.Runtime.SetEnvironment(req.Environment)
-
-	requirements.Localize(s.Location)
-
-	// Endpoints
-	s.Endpoints, err = s.Runtime.Service.LoadEndpoints(ctx)
-	if err != nil {
-		return s.Runtime.LoadErrorf(err, "cannot load endpoints")
-	}
-
-	s.Wool.Debug("endpoints", wool.Field("endpoints", resources.MakeManyEndpointSummary(s.Endpoints)))
-
-	s.TcpEndpoint, err = resources.FindTCPEndpoint(ctx, s.Endpoints)
-	if err != nil {
-		return s.Runtime.LoadErrorf(err, "cannot find TCP endpoint")
-	}
-
-	return s.Runtime.LoadResponse()
-}
-
-func CallingContext() *basev0.NetworkAccess {
-	if _, err := os.Stat("/.dockerenv"); err == nil {
-		return resources.NewContainerNetworkAccess()
-	}
-	return resources.NewNativeNetworkAccess()
+	return s.Runtime.LoadService(ctx, req, services.RuntimeLoad{
+		Settings:     s.Settings,
+		Requirements: requirements,
+		ResolveEndpoints: func(ctx context.Context, endpoints []*basev0.Endpoint) error {
+			s.Wool.Debug("endpoints", wool.Field("endpoints", resources.MakeManyEndpointSummary(endpoints)))
+			endpoint, err := resources.FindTCPEndpoint(ctx, endpoints)
+			if err != nil {
+				return s.Wool.Wrapf(err, "cannot find TCP endpoint")
+			}
+			s.TcpEndpoint = endpoint
+			return nil
+		},
+	})
 }
 
 func (s *Runtime) Init(ctx context.Context, req *runtimev0.InitRequest) (*runtimev0.InitResponse, error) {
@@ -83,6 +63,7 @@ func (s *Runtime) Init(ctx context.Context, req *runtimev0.InitRequest) (*runtim
 	ctx = s.Wool.Inject(ctx)
 
 	s.Runtime.LogInitRequest(req)
+	s.Runtime.WithContext(req.GetRuntimeContext())
 
 	w := s.Wool.In("runtime::init")
 
@@ -91,9 +72,12 @@ func (s *Runtime) Init(ctx context.Context, req *runtimev0.InitRequest) (*runtim
 	s.Configuration = req.Configuration
 
 	// Get region
-	region, err := resources.GetConfigurationValue(ctx, s.Configuration, "dynamnodb", "AWS_REGION")
+	region, err := resources.GetConfigurationValue(ctx, s.Configuration, "dynamodb", "AWS_REGION")
 	if err != nil {
 		return s.Runtime.InitError(err)
+	}
+	if region == "" {
+		region = "us-east-1"
 	}
 	s.Region = region
 
@@ -106,7 +90,7 @@ func (s *Runtime) Init(ctx context.Context, req *runtimev0.InitRequest) (*runtim
 		return s.Runtime.InitError(w.NewError("network mapping is nil"))
 	}
 
-	instance, err := resources.FindNetworkInstanceInNetworkMappings(ctx, s.NetworkMappings, s.TcpEndpoint, CallingContext())
+	instance, err := resources.FindNetworkInstanceInNetworkMappings(ctx, s.NetworkMappings, s.TcpEndpoint, s.Runtime.NetworkAccess())
 	if err != nil {
 		return s.Runtime.InitError(err)
 	}
