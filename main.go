@@ -10,6 +10,7 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 	"github.com/codefly-dev/core/resources"
+	runnersbase "github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/templates"
 	"google.golang.org/grpc/codes"
@@ -49,14 +50,11 @@ func (s *Service) GetAgentInformation(ctx context.Context, _ *agentv0.AgentInfor
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	return &agentv0.AgentInformation{
-		RuntimeRequirements: []*agentv0.Runtime{},
-		Capabilities: []*agentv0.Capability{
-			{Type: agentv0.Capability_BUILDER},
-			{Type: agentv0.Capability_RUNTIME},
+	return services.Advertisement{
+		Backends: runnersbase.BackendSupport{
+			Docker: true,
 		},
-		Protocols: []*agentv0.Protocol{},
-		ConfigurationDetails: []*agentv0.ConfigurationValueDetail{
+		Config: []*agentv0.ConfigurationValueDetail{
 			{
 				Name: "dynamodb", Description: "dynamodb credentials",
 				Fields: []*agentv0.ConfigurationValueInformation{
@@ -71,7 +69,7 @@ func (s *Service) GetAgentInformation(ctx context.Context, _ *agentv0.AgentInfor
 			},
 		},
 		ReadMe: readme,
-	}, nil
+	}.Build(), nil
 }
 
 func (s *Service) CreateConnectionConfiguration(ctx context.Context, conf *basev0.Configuration, instance *basev0.NetworkInstance, withSSL bool) (*basev0.Configuration, error) {
@@ -104,10 +102,11 @@ func NewService() *Service {
 }
 
 func main() {
-	agents.Register(
-		services.NewServiceAgent(agent.Of(resources.ServiceAgent), NewService()),
-		services.NewBuilderAgent(agent.Of(resources.RuntimeServiceAgent), NewBuilder()),
-		services.NewRuntimeAgent(agent.Of(resources.BuilderServiceAgent), NewRuntime()))
+	agents.Serve(agents.PluginRegistration{
+		Agent:   NewService(),
+		Runtime: NewRuntime(),
+		Builder: NewBuilder(),
+	})
 }
 
 //go:embed agent.codefly.yaml

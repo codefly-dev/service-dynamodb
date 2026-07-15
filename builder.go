@@ -18,7 +18,10 @@ import (
 )
 
 type Builder struct {
+	services.BuilderServer
 	*Service
+
+	answers map[string]*agentv0.Answer
 }
 
 func NewBuilder() *Builder {
@@ -50,13 +53,6 @@ func (s *Builder) Load(ctx context.Context, req *builderv0.LoadRequest) (*builde
 		s.Builder.GettingStarted, err = templates.ApplyTemplateFrom(ctx, shared.Embed(factoryFS), "templates/factory/GETTING_STARTED.md", s.Information)
 		if err != nil {
 			return nil, err
-		}
-		if req.CreationMode.Communicate {
-			// communication on CreateResponse
-			err = s.Communication.Register(ctx, communicate.New[builderv0.CreateRequest](s.createCommunicate()))
-			if err != nil {
-				return s.Builder.LoadError(err)
-			}
 		}
 		return s.Builder.LoadResponse()
 	}
@@ -115,8 +111,14 @@ func (s *Builder) Options() []*agentv0.Question {
 	return []*agentv0.Question{}
 }
 
-func (s *Builder) createCommunicate() *communicate.Sequence {
-	return communicate.NewSequence(s.Options()...)
+func (s *Builder) Communicate(stream builderv0.Builder_CommunicateServer) error {
+	asker := communicate.NewQuestionAsker(stream)
+	answers, err := asker.RunSequence(s.Options())
+	if err != nil {
+		return err
+	}
+	s.answers = answers
+	return nil
 }
 
 type create struct {
