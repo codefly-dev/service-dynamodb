@@ -44,6 +44,18 @@ func (s *Builder) Load(ctx context.Context, req *builderv0.LoadRequest) (*builde
 	})
 }
 
+func (s *Builder) Audit(ctx context.Context, req *builderv0.AuditRequest) (*builderv0.AuditResponse, error) {
+	defer s.Wool.Catch()
+	ctx = s.Wool.Inject(ctx)
+	return s.Builder.AuditContainer(ctx, req, image.FullName())
+}
+
+func (s *Builder) SBOM(ctx context.Context, _ *builderv0.SBOMRequest) (*builderv0.SBOMResponse, error) {
+	defer s.Wool.Catch()
+	ctx = s.Wool.Inject(ctx)
+	return s.Builder.SBOMContainer(ctx, image.FullName())
+}
+
 func (s *Builder) Deploy(ctx context.Context, req *builderv0.DeploymentRequest) (*builderv0.DeploymentResponse, error) {
 	defer s.Wool.Catch()
 	s.Base.SetDockerImage(image)
