@@ -1,4 +1,5 @@
 *.so
+service-dynamodb
 .idea
 go.work*
 dist
