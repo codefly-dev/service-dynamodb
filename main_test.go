@@ -69,7 +69,7 @@ func TestCreateToRun(t *testing.T) {
 
 	require.Equal(t, 1, len(runtime.Endpoints))
 
-	networkMappings, err := networkManager.GenerateNetworkMappings(ctx, env, workspace, runtime.Identity, runtime.Endpoints)
+	networkMappings, err := networkManager.GenerateNetworkMappings(ctx, env, workspace, runtime.Identity, runtime.Endpoints, resources.NewRuntimeContextFree())
 	require.NoError(t, err)
 	require.Equal(t, 1, len(networkMappings))
 
