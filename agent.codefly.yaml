@@ -1,3 +1,4 @@
 publisher: codefly.dev
+kind: service
 name: dynamodb
 version: 0.0.6
