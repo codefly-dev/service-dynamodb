@@ -15,6 +15,7 @@ spec:
         app: {{ .Name }}
     spec:
       automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -26,9 +27,11 @@ spec:
         - name: dynamodb-local
           image: {{ .Image }}
           imagePullPolicy: IfNotPresent
-          args: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-dbPath", "./data"]
+          args: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-dbPath", "/home/dynamodblocal/data"]
           securityContext:
             allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
             seccompProfile:
@@ -45,6 +48,10 @@ spec:
             tcpSocket:
               port: http
             periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
           resources:
             requests:
               cpu: 50m
@@ -55,6 +62,11 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /home/dynamodblocal/data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
   volumeClaimTemplates:
     - metadata:
         name: data

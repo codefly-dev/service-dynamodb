@@ -69,10 +69,10 @@ func (s *Runtime) Init(ctx context.Context, req *runtimev0.InitRequest) (*runtim
 
 	s.NetworkMappings = req.ProposedNetworkMappings
 
-	s.Configuration = req.Configuration
+	configuration := req.GetConfiguration()
 
 	// Get region
-	region, err := resources.GetConfigurationValue(ctx, s.Configuration, "dynamodb", "AWS_REGION")
+	region, err := resources.GetConfigurationValue(ctx, configuration, "dynamodb", "AWS_REGION")
 	if err != nil {
 		return s.Runtime.InitError(err)
 	}
@@ -107,7 +107,7 @@ func (s *Runtime) Init(ctx context.Context, req *runtimev0.InitRequest) (*runtim
 
 	// Create connection configurations resources for the network instance
 	for _, inst := range net.Instances {
-		conf, errConn := s.CreateConnectionConfiguration(ctx, s.Configuration, inst, false)
+		conf, errConn := s.CreateConnectionConfiguration(ctx, configuration, inst, false)
 		if errConn != nil {
 			return s.Runtime.InitError(errConn)
 		}
