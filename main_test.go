@@ -95,6 +95,7 @@ func TestCreateToRun(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, init)
+	require.Equal(t, runtimev0.InitStatus_READY, init.Status.State, init.Status.Message)
 
 	defer func() {
 		_, err = runtime.Destroy(ctx, &runtimev0.DestroyRequest{})
