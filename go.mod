@@ -7,7 +7,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.37
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.36
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.63.3
-	github.com/codefly-dev/core v0.4.4-0.20260922090214-83b3904dd07e
+	github.com/codefly-dev/core v0.5.0
 	github.com/golang-migrate/migrate/v4 v4.19.1
 	github.com/lib/pq v1.12.3
 	github.com/stretchr/testify v1.12.1
