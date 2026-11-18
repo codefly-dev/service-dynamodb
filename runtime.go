@@ -217,14 +217,12 @@ func (s *Runtime) Destroy(ctx context.Context, req *runtimev0.DestroyRequest) (*
 
 	s.Wool.Debug("Destroying")
 
-	// Get the runner environment
-	runner, err := dockerrun.NewDockerHeadlessEnvironment(ctx, image, s.UniqueWithWorkspace())
-	if err != nil {
-		return s.Runtime.DestroyError(err)
-	}
-
-	err = runner.Shutdown(ctx)
-	if err != nil {
+	if s.runnerEnvironment != nil {
+		if err := s.runnerEnvironment.Shutdown(ctx); err != nil {
+			return s.Runtime.DestroyError(err)
+		}
+		s.runnerEnvironment = nil
+	} else if err := dockerrun.ShutdownNamedContainer(ctx, s.UniqueWithWorkspace()); err != nil {
 		return s.Runtime.DestroyError(err)
 	}
 	return s.Runtime.DestroyResponse()

@@ -8,26 +8,29 @@ import (
 	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
 	"github.com/codefly-dev/core/network"
 	"github.com/codefly-dev/core/resources"
+	"github.com/codefly-dev/core/runners/dockerrun"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 	"github.com/stretchr/testify/require"
-	"os"
+	"os/exec"
 	"path"
+	"strings"
 	"testing"
 	"time"
 )
 
 func TestCreateToRun(t *testing.T) {
+	for _, loadedOnly := range []bool{false, true} {
+		t.Run(fmt.Sprintf("loadedOnly=%v", loadedOnly), func(t *testing.T) { testCreateToRun(t, loadedOnly) })
+	}
+}
+func testCreateToRun(t *testing.T, loadedOnly bool) {
 	wool.SetGlobalLogLevel(wool.DEBUG)
 	ctx := context.Background()
 
 	workspace := &resources.Workspace{Name: "test"}
 
 	tmpDir := t.TempDir()
-	defer func(path string) {
-		err := os.RemoveAll(path)
-		require.NoError(t, err)
-	}(tmpDir)
 
 	serviceName := fmt.Sprintf("svc-%v", time.Now().UnixMilli())
 	service := resources.Service{Name: serviceName, Version: "test-me"}
@@ -88,6 +91,31 @@ func TestCreateToRun(t *testing.T) {
 		},
 	}
 
+	// Register independent cleanup before Init, including failed assertions.
+	t.Cleanup(func() {
+		require.NoError(t, dockerrun.ShutdownNamedContainer(context.Background(), runtime.UniqueWithWorkspace()))
+	})
+	t.Cleanup(func() {
+		name := dockerrun.ContainerName(runtime.UniqueWithWorkspace())
+		containers := func() string {
+			out, err := exec.Command("docker", "ps", "-aq", "--filter", "name=^/"+name+"$").CombinedOutput()
+			require.NoError(t, err, "%s", out)
+			return strings.TrimSpace(string(out))
+		}
+		require.NotEmpty(t, containers(), "fixture must own a container")
+		target := runtime
+		if loadedOnly {
+			target = NewRuntime()
+			_, err := target.Load(ctx, &runtimev0.LoadRequest{Identity: identity, Environment: shared.Must(env.Proto()), DisableCatch: true})
+			require.NoError(t, err)
+			require.Nil(t, target.runnerEnvironment)
+		}
+		destroyed, err := target.Destroy(ctx, &runtimev0.DestroyRequest{})
+		require.NoError(t, err)
+		require.Equal(t, runtimev0.DestroyStatus_SUCCESS, destroyed.GetStatus().GetState())
+		require.Empty(t, containers(), "Destroy must remove the container")
+	})
+
 	init, err := runtime.Init(ctx, &runtimev0.InitRequest{
 		RuntimeContext:          resources.NewRuntimeContextFree(),
 		Configuration:           conf,
@@ -96,10 +124,6 @@ func TestCreateToRun(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, init)
 	require.Equal(t, runtimev0.InitStatus_READY, init.Status.State, init.Status.Message)
-
-	defer func() {
-		_, err = runtime.Destroy(ctx, &runtimev0.DestroyRequest{})
-	}()
 
 	// Extract logs
 
